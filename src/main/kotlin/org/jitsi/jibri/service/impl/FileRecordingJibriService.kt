@@ -47,6 +47,12 @@ import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.net.URLEncoder
+import java.net.URL
+import java.io.OutputStreamWriter
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import javax.net.ssl.HttpsURLConnection
 
 /**
  * Parameters needed for starting a [FileRecordingJibriService]
@@ -192,9 +198,9 @@ class FileRecordingJibriService(
         } else {
             logger.error("Unable to write metadata file to recording directory $recordingsDirectory")
         }
-        jibriSelenium.leaveCallAndQuitBrowser()
         logger.info("Finalizing the recording")
         finalize()
+        jibriSelenium.leaveCallAndQuitBrowser()
     }
 
     /**
@@ -223,9 +229,43 @@ class FileRecordingJibriService(
                     streamDone.cancel(true)
                 }
                 logger.info("Recording finalize script finished with exit value $exitValue")
+                sendAddRecordingRequest(this.getMostRecentLine())
             }
         } catch (e: Exception) {
             logger.error("Failed to run finalize script", e)
+        }
+    }
+
+    private fun sendAddRecordingRequest(url: String) {
+        logger.info("Sending add recording request")
+        val requestData = jibriSelenium.getRequestData()
+        val requestUrl = requestData[0]
+        val requestJWT = requestData[1]
+        val requestRoomId = requestData[2]
+        var reqParam = URLEncoder.encode("operation", "UTF-8") + "=" + URLEncoder.encode("addVideoConferenceRecording", "UTF-8")
+        reqParam += "&" + URLEncoder.encode("url", "UTF-8") + "=" + URLEncoder.encode(url, "UTF-8")
+        reqParam += "&" + URLEncoder.encode("room_id", "UTF-8") + "=" + URLEncoder.encode(requestRoomId, "UTF-8")
+        reqParam += "&" + URLEncoder.encode("jwt", "UTF-8") + "=" + URLEncoder.encode(requestJWT, "UTF-8")
+        val mURL = URL(requestUrl)
+
+        with(mURL.openConnection() as HttpsURLConnection) {
+            requestMethod = "POST"
+            doOutput = true
+
+            val wr = OutputStreamWriter(getOutputStream())
+            wr.write(reqParam)
+            wr.flush()
+
+            BufferedReader(InputStreamReader(inputStream)).use {
+                val response = StringBuffer()
+
+                var inputLine = it.readLine()
+                while (inputLine != null) {
+                    response.append(inputLine)
+                    inputLine = it.readLine()
+                }
+                logger.info("Response : $response")
+            }
         }
     }
 }

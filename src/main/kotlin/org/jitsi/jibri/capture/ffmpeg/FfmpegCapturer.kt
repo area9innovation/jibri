@@ -39,7 +39,7 @@ import java.util.logging.Logger
  */
 data class FfmpegExecutorParams(
     val resolution: String = "1280x720",
-    val framerate: Int = 30,
+    val framerate: Int = 25,
     val videoEncodePreset: String = "veryfast",
     val queueSize: Int = 4096,
     val streamingMaxBitrate: Int = 2976,

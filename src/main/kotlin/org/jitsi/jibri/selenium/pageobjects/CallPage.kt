@@ -237,4 +237,93 @@ class CallPage(driver: RemoteWebDriver) : AbstractPageObject(driver) {
             else -> true
         }
     }
+
+    fun sendEndpointMessage(msg: String, i: Int): Boolean {
+        if (i < 5) {
+            val result = driver.executeScript("""
+                try {
+                    APP.conference.sendEndpointMessage('', {name:'endpoint-text-message',text:'$msg'});
+                    return true;
+                } catch (e) {
+                    return e.message;
+                }
+            """.trimMargin())
+            if (result is Boolean) {
+                return true
+            } else {
+                logger.error("Error sending endpoint message: $result")
+                Thread.sleep(2000)
+                return sendEndpointMessage(msg, i + 1)
+            }
+        } else {
+             return false
+        }
+    }
+
+    class SendEndpointMessageThread(var callPage: CallPage, var msg: String): Thread() {
+        public override fun run() {
+            callPage.sendEndpointMessage(msg, 0)
+        }
+    }
+
+    fun sendEndpointMessage(msg: String) {
+        val thread = SendEndpointMessageThread(this, msg)
+        thread.start()
+    }
+
+    fun addRequestDataListener(): Boolean {
+        val result = driver.executeScript("""
+            try {
+                window._requestUrl = "";
+                window._requestJWT = "";
+                window._requestRoomId = "";
+                APP.conference._room.rtc.addListener(
+                    "rtc.endpoint_message_received",
+                    (participant, message) => {
+                        if (message.name == "endpoint-text-message") {
+                            const msg = JSON.parse(message.text);
+                            const url = msg.url;
+                            if (url != "") window._requestUrl = url;
+                            const jwt = msg.jwt;
+                            if (jwt != "") window._requestJWT = jwt;
+                            const roomId = msg.roomId;
+                            if (roomId != "") window._requestRoomId = roomId;
+                        }
+                    }
+                );
+                return true;
+            } catch (e) {
+                return e.message;
+            }
+        """.trimMargin())
+        return when (result) {
+            is Boolean -> {
+                sendEndpointMessage("recordingStarted")
+                true
+            } else -> {
+                logger.error("Error adding request data listener: $result")
+                false
+            }
+        }
+    }
+
+    fun getRequestData(): List<String> {
+        val result = driver.executeScript("""
+            try {
+                return [window._requestUrl, window._requestJWT, window._requestRoomId];
+            } catch (e) {
+                return e.message;
+            }
+        """.trimMargin())
+        return when (result) {
+            is List<*> -> {
+                @Suppress("UNCHECKED_CAST")
+                result as List<String>
+            } else -> {
+                logger.error("Error getting request data: $result")
+                listOf()
+            }
+        }
+    }
+
 }

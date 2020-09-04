@@ -256,6 +256,7 @@ class JibriSelenium(
                     addParticipantTracker()
                     currCallUrl = callUrlInfo.callUrl
                     stateMachine.transition(SeleniumEvent.CallJoined)
+                    CallPage(chromeDriver).addRequestDataListener()
                 }
             } catch (t: Throwable) {
                 logger.error("An error occurred while joining the call", t)
@@ -303,4 +304,9 @@ class JibriSelenium(
         private val browserOutputLogger = getLoggerWithHandler("browser", BrowserFileHandler())
         const val COMPONENT_ID = "Selenium"
     }
+
+    fun getRequestData(): List<String> {
+        return CallPage(chromeDriver).getRequestData()
+    }
+
 }
