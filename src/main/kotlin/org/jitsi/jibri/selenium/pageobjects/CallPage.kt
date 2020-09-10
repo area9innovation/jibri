@@ -238,7 +238,7 @@ class CallPage(driver: RemoteWebDriver) : AbstractPageObject(driver) {
         }
     }
 
-    fun sendEndpointMessage(msg: String, i: Int): Boolean {
+    private fun sendEndpointMessage(msg: String, i: Int): Boolean {
         if (i < 5) {
             val result = driver.executeScript("""
                 try {
@@ -260,7 +260,7 @@ class CallPage(driver: RemoteWebDriver) : AbstractPageObject(driver) {
         }
     }
 
-    class SendEndpointMessageThread(var callPage: CallPage, var msg: String): Thread() {
+    private class SendEndpointMessageThread(var callPage: CallPage, var msg: String): Thread() {
         public override fun run() {
             callPage.sendEndpointMessage(msg, 0)
         }
@@ -297,10 +297,8 @@ class CallPage(driver: RemoteWebDriver) : AbstractPageObject(driver) {
             }
         """.trimMargin())
         return when (result) {
-            is Boolean -> {
-                sendEndpointMessage("recordingStarted")
-                true
-            } else -> {
+            is Boolean -> true
+            else -> {
                 logger.error("Error adding request data listener: $result")
                 false
             }
@@ -321,7 +319,7 @@ class CallPage(driver: RemoteWebDriver) : AbstractPageObject(driver) {
                 result as List<String>
             } else -> {
                 logger.error("Error getting request data: $result")
-                listOf()
+                listOf("")
             }
         }
     }

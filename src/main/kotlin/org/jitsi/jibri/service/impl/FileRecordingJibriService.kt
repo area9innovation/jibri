@@ -242,30 +242,38 @@ class FileRecordingJibriService(
         val requestUrl = requestData[0]
         val requestJWT = requestData[1]
         val requestRoomId = requestData[2]
-        var reqParam = URLEncoder.encode("operation", "UTF-8") + "=" + URLEncoder.encode("addVideoConferenceRecording", "UTF-8")
-        reqParam += "&" + URLEncoder.encode("url", "UTF-8") + "=" + URLEncoder.encode(url, "UTF-8")
-        reqParam += "&" + URLEncoder.encode("room_id", "UTF-8") + "=" + URLEncoder.encode(requestRoomId, "UTF-8")
-        reqParam += "&" + URLEncoder.encode("jwt", "UTF-8") + "=" + URLEncoder.encode(requestJWT, "UTF-8")
-        val mURL = URL(requestUrl)
+        if (url != "" && requestUrl != "" && requestJWT != "" && requestRoomId != "") {
+            var reqParam = URLEncoder.encode("operation", "UTF-8") + "=" + URLEncoder.encode("addVideoConferenceRecording", "UTF-8")
+            reqParam += "&" + URLEncoder.encode("url", "UTF-8") + "=" + URLEncoder.encode(url, "UTF-8")
+            reqParam += "&" + URLEncoder.encode("room_id", "UTF-8") + "=" + URLEncoder.encode(requestRoomId, "UTF-8")
+            reqParam += "&" + URLEncoder.encode("jwt", "UTF-8") + "=" + URLEncoder.encode(requestJWT, "UTF-8")
+            val mURL = URL(requestUrl)
 
-        with(mURL.openConnection() as HttpsURLConnection) {
-            requestMethod = "POST"
-            doOutput = true
+            with(mURL.openConnection() as HttpsURLConnection) {
+                requestMethod = "POST"
+                doOutput = true
 
-            val wr = OutputStreamWriter(getOutputStream())
-            wr.write(reqParam)
-            wr.flush()
+                val wr = OutputStreamWriter(getOutputStream())
+                wr.write(reqParam)
+                wr.flush()
 
-            BufferedReader(InputStreamReader(inputStream)).use {
-                val response = StringBuffer()
+                BufferedReader(InputStreamReader(inputStream)).use {
+                    val response = StringBuffer()
 
-                var inputLine = it.readLine()
-                while (inputLine != null) {
-                    response.append(inputLine)
-                    inputLine = it.readLine()
+                    var inputLine = it.readLine()
+                    while (inputLine != null) {
+                        response.append(inputLine)
+                        inputLine = it.readLine()
+                    }
+                    logger.info("Response : $response")
                 }
-                logger.info("Response : $response")
             }
+        } else {
+            logger.error("Not enough data to add recording")
+            logger.error("Request url: \"$requestUrl\"")
+            logger.error("JWT: \"$requestJWT\"")
+            logger.error("Room id: \"$requestRoomId\"")
+            logger.error("URL: \"$url\"")
         }
     }
 }

@@ -229,6 +229,23 @@ class JibriSelenium(
 
     fun sendPresence(): Boolean = CallPage(chromeDriver).sendPresence()
 
+    private class requestRequestDataThread(var selenium: JibriSelenium, var chromeDriver: ChromeDriver): Thread() {
+        public override fun run() {
+            var data = listOf("")
+            while (data[0] == "") {
+                CallPage(chromeDriver).sendEndpointMessage("recordingStarted")
+                Thread.sleep(4000)
+                data = selenium.getRequestData()
+            }
+        }
+    }
+
+    private fun requestRequestData() {
+        CallPage(chromeDriver).addRequestDataListener()
+        val thread = requestRequestDataThread(this, chromeDriver)
+        thread.start()
+    }
+
     /**
      * Join a a web call with Selenium
      */
@@ -256,7 +273,7 @@ class JibriSelenium(
                     addParticipantTracker()
                     currCallUrl = callUrlInfo.callUrl
                     stateMachine.transition(SeleniumEvent.CallJoined)
-                    CallPage(chromeDriver).addRequestDataListener()
+                    requestRequestData()
                 }
             } catch (t: Throwable) {
                 logger.error("An error occurred while joining the call", t)
