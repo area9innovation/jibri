@@ -25,11 +25,11 @@ import com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import org.jitsi.jibri.logger
-import org.jitsi.jibri.util.extensions.error
 import java.io.File
 
 data class XmppCredentials(
     val domain: String = "",
+    val port: Int? = null,
     val username: String = "",
     val password: String = ""
 )
@@ -37,6 +37,7 @@ data class XmppCredentials(
 fun com.typesafe.config.Config.toXmppCredentials(): XmppCredentials =
     XmppCredentials(
         domain = getString("domain"),
+        port = if (hasPath("port")) getInt("port") else null,
         username = getString("username"),
         password = getString("password")
     )
@@ -70,6 +71,11 @@ data class XmppEnvironmentConfig(
      */
     @JsonProperty("xmpp_domain")
     val xmppDomain: String,
+    /**
+     * The baseUrl we'll use, if set, to join the call
+     */
+    @JsonProperty("baseUrl")
+    val baseUrl: String?,
     /**
      * The login information for the control API
      */
@@ -116,11 +122,14 @@ data class XmppEnvironmentConfig(
     val trustAllXmppCerts: Boolean = true
 )
 
-public fun com.typesafe.config.Config.toXmppEnvironment(): XmppEnvironmentConfig =
+fun com.typesafe.config.Config.toXmppEnvironment(): XmppEnvironmentConfig =
     XmppEnvironmentConfig(
         name = getString("name"),
         xmppServerHosts = getStringList("xmpp-server-hosts"),
         xmppDomain = getString("xmpp-domain"),
+        baseUrl = if (hasPath("base-url")) {
+            getString("base-url")
+        } else null,
         controlLogin = getConfig("control-login").toXmppCredentials(),
         controlMuc = getConfig("control-muc").toXmppMuc(),
         sipControlMuc = if (hasPath("sip-control-muc")) {

@@ -17,22 +17,23 @@
 package org.jitsi.jibri.selenium
 
 import org.jitsi.jibri.CallUrlInfo
+import org.jitsi.jibri.MainConfig
 import org.jitsi.jibri.config.Config
 import org.jitsi.jibri.config.XmppCredentials
 import org.jitsi.jibri.selenium.pageobjects.CallPage
 import org.jitsi.jibri.selenium.pageobjects.HomePage
-import org.jitsi.jibri.selenium.status_checks.CallStatusCheck
 import org.jitsi.jibri.selenium.status_checks.EmptyCallStatusCheck
 import org.jitsi.jibri.selenium.status_checks.MediaReceivedStatusCheck
 import org.jitsi.jibri.selenium.util.BrowserFileHandler
 import org.jitsi.jibri.status.ComponentState
 import org.jitsi.jibri.util.StatusPublisher
 import org.jitsi.jibri.util.TaskPools
-import org.jitsi.jibri.util.extensions.error
 import org.jitsi.jibri.util.extensions.scheduleAtFixedRate
 import org.jitsi.jibri.util.getLoggerWithHandler
 import org.jitsi.metaconfig.config
 import org.jitsi.metaconfig.from
+import org.jitsi.utils.logging2.Logger
+import org.jitsi.utils.logging2.createChildLogger
 import org.openqa.selenium.TimeoutException
 import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.chrome.ChromeDriverService
@@ -46,14 +47,45 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Level
-import java.util.logging.Logger
 
 /**
  * Parameters needed for joining the call in Selenium
  */
 data class CallParams(
-    val callUrlInfo: CallUrlInfo
-)
+    val callUrlInfo: CallUrlInfo,
+    /**
+     * The email that should be used for jibri.  Note that this
+     * is currently only used in the sipgateway gateway scenario; when doing
+     * recording the jibri is 'invisible' in the call
+     */
+    val email: String = "",
+    /**
+     * SipJibri will set the passcode in the local storage
+     * This will be used by jitsi-meet to send the conference passcode to prosody
+     * and bypass the password prompt
+     */
+    val passcode: String? = null,
+    /**
+     * Override the default value of callStats username.
+     * Note that this is currently only used in the sipgateway gateway scenario;
+     */
+    val callStatsUsernameOverride: String = "",
+    /**
+     * Display name which when it is set, it is used by jibri when joining the web conference.
+     * Note that this is currently only used in the sipgateway gateway scenario;
+     */
+    val displayName: String = ""
+) {
+    override fun toString(): String {
+        return if (passcode.isNullOrEmpty()) {
+            "CallParams(callUrlInfo=$callUrlInfo, email='$email', passcode=$passcode" +
+                    ", callStatsUsernameOverride=$callStatsUsernameOverride, displayName=$displayName)"
+        } else {
+            "CallParams(callUrlInfo=$callUrlInfo, email='$email', passcode=*****" +
+                    ", callStatsUsernameOverride=$callStatsUsernameOverride, displayName=$displayName)"
+        }
+    }
+}
 
 /**
  * Options that can be passed to [JibriSelenium]
@@ -76,6 +108,11 @@ data class JibriSeleniumOptions(
      */
     val email: String = "",
     /**
+     * The callstats username to be used for jibri.
+     * Set this only to override the default callStatsUsername
+     */
+    val callStatsUsernameOverride: String = "",
+    /**
      * Chrome command line flags to add (in addition to the common
      * ones)
      */
@@ -91,9 +128,11 @@ val SIP_GW_URL_OPTIONS = listOf(
     "config.iAmSipGateway=true",
     "config.ignoreStartMuted=true",
     "config.analytics.disabled=true",
+    "config.enableEmailInStats=false",
     "config.p2p.enabled=false",
     "config.prejoinPageEnabled=false",
-    "config.requireDisplayName=false"
+    "config.requireDisplayName=false",
+    "devices.videoInput=\"PJSUA\""
 )
 
 val RECORDING_URL_OPTIONS = listOf(
@@ -117,9 +156,10 @@ val RECORDING_URL_OPTIONS = listOf(
  * It implements [StatusPublisher] to publish its status
  */
 class JibriSelenium(
+    parentLogger: Logger,
     private val jibriSeleniumOptions: JibriSeleniumOptions = JibriSeleniumOptions()
 ) : StatusPublisher<ComponentState>() {
-    private val logger = Logger.getLogger(this::class.qualifiedName)
+    private val logger = createChildLogger(parentLogger)
     private var chromeDriver: ChromeDriver
     private var currCallUrl: String? = null
     private val stateMachine = SeleniumStateMachine()
@@ -131,11 +171,10 @@ class JibriSelenium(
      * working correctly
      */
     private var recurringCallStatusCheckTask: ScheduledFuture<*>? = null
-    private val callStatusChecks: List<CallStatusCheck>
 
     /**
      * Set up default chrome driver options (using fake device, etc.)
-      */
+     */
     init {
         System.setProperty("webdriver.chrome.logfile", "/tmp/chromedriver.log")
         val chromeOptions = ChromeOptions()
@@ -151,13 +190,6 @@ class JibriSelenium(
         chromeDriver = ChromeDriver(chromeDriverService, chromeOptions)
         chromeDriver.manage().timeouts().pageLoadTimeout(60, TimeUnit.SECONDS)
 
-        // Note that the order here is important: we always want to check for no participants before we check
-        // for media being received, since the call being empty will also mean Jibri is not receiving media but should
-        // not cause Jibri to go unhealthy (like not receiving media when there are others in the call will).
-        callStatusChecks = listOf(
-            EmptyCallStatusCheck(logger, callEmptyTimeout = jibriSeleniumOptions.emptyCallTimeout),
-            MediaReceivedStatusCheck(logger)
-        )
         stateMachine.onStateTransition(this::onSeleniumStateChange)
     }
 
@@ -177,6 +209,13 @@ class JibriSelenium(
     }
 
     private fun startRecurringCallStatusChecks() {
+        // Note that the order here is important: we always want to check for no participants before we check
+        // for media being received, since the call being empty will also mean Jibri is not receiving media but should
+        // not cause Jibri to go unhealthy (like not receiving media when there are others in the call will).
+        val callStatusChecks = listOf(
+            EmptyCallStatusCheck(logger, callEmptyTimeout = jibriSeleniumOptions.emptyCallTimeout),
+            MediaReceivedStatusCheck(logger)
+        )
         // We fire all state transitions in the ioPool, otherwise we may try and cancel the
         // recurringCallStatusCheckTask from within the thread it was executing in.  Another solution would've been
         // to pass 'false' to recurringCallStatusCheckTask.cancel, but it felt cleaner to separate the threads
@@ -192,9 +231,9 @@ class JibriSelenium(
                 // state transition from that event. Note: it's intentional that we stop at the first check that fails
                 // and 'asSequence' is necessary to do that.
                 val event = callStatusChecks
-                        .asSequence()
-                        .map { check -> check.run(callPage) }
-                        .firstOrNull { result -> result != null }
+                    .asSequence()
+                    .map { check -> check.run(callPage) }
+                    .firstOrNull { result -> result != null }
                 if (event != null) {
                     logger.info("Recurring call status checks generated event $event")
                     transitionState(event)
@@ -249,21 +288,31 @@ class JibriSelenium(
     /**
      * Join a a web call with Selenium
      */
-    fun joinCall(callUrlInfo: CallUrlInfo, xmppCredentials: XmppCredentials? = null) {
+    fun joinCall(callUrlInfo: CallUrlInfo, xmppCredentials: XmppCredentials? = null, passcode: String? = null) {
         // These are all blocking calls, so offload the work to another thread
         TaskPools.ioPool.submit {
             try {
                 HomePage(chromeDriver).visit(callUrlInfo.baseUrl)
 
+                var callStatsUsername = "jibri"
+                if (jibriSeleniumOptions.callStatsUsernameOverride.isNotEmpty()) {
+                    callStatsUsername = jibriSeleniumOptions.callStatsUsernameOverride
+                } else if (MainConfig.jibriId.isNotEmpty()) {
+                    callStatsUsername = MainConfig.jibriId
+                }
+
                 val localStorageValues = mutableMapOf(
-                        "displayname" to jibriSeleniumOptions.displayName,
-                        "email" to jibriSeleniumOptions.email,
-                        "callStatsUserName" to "jibri"
+                    "displayname" to jibriSeleniumOptions.displayName,
+                    "email" to jibriSeleniumOptions.email,
+                    "callStatsUserName" to callStatsUsername
                 )
                 xmppCredentials?.let {
                     localStorageValues["xmpp_username_override"] =
                         "${xmppCredentials.username}@${xmppCredentials.domain}"
                     localStorageValues["xmpp_password_override"] = xmppCredentials.password
+                }
+                passcode?.let {
+                    localStorageValues["xmpp_conference_password_override"] = passcode
                 }
                 setLocalStorageValues(localStorageValues)
                 if (!CallPage(chromeDriver).visit(callUrlInfo.callUrl)) {

@@ -20,10 +20,11 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.kotest.core.spec.IsolationMode
 import io.kotest.core.spec.style.ShouldSpec
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
-import io.kotest.matchers.types.shouldBeInstanceOf
+import io.kotest.matchers.types.beInstanceOf
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
@@ -35,14 +36,20 @@ import io.ktor.content.TextContent
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.mockk.every
+import io.mockk.slot
+import io.mockk.spyk
 import kotlinx.coroutines.delay
 import org.jitsi.jibri.status.ComponentBusyStatus
 import org.jitsi.jibri.status.ComponentHealthStatus
 import org.jitsi.jibri.status.JibriStatus
 import org.jitsi.jibri.status.OverallHealth
+import org.jitsi.jibri.util.TaskPools
+import org.jitsi.test.concurrent.FakeExecutorService
 
 class WebhookClientTest : ShouldSpec({
     isolationMode = IsolationMode.InstancePerLeaf
+
     val requests = mutableListOf<HttpRequestData>()
     val goodStatus = JibriStatus(
         ComponentBusyStatus.IDLE,
@@ -58,28 +65,51 @@ class WebhookClientTest : ShouldSpec({
             mapOf()
         )
     )
-    val client = WebhookClient("test", client = HttpClient(MockEngine) {
-        engine {
-            addHandler { request ->
-                requests += request
-                with(request.url.toString()) {
-                    when {
-                        contains("success") -> {
-                            respondOk()
+    val client = WebhookClient(
+        "test",
+        client = HttpClient(MockEngine) {
+            engine {
+                addHandler { request ->
+                    requests += request
+                    with(request.url.toString()) {
+                        when {
+                            contains("success") -> {
+                                respondOk()
+                            }
+                            contains("delay") -> {
+                                delay(1000)
+                                respondOk()
+                            }
+                            contains("error") -> {
+                                respondError(HttpStatusCode.BadRequest)
+                            }
+                            else -> error("Unsupported URL")
                         }
-                        contains("delay") -> {
-                            delay(1000)
-                            respondOk()
-                        }
-                        contains("error") -> {
-                            respondError(HttpStatusCode.BadRequest)
-                        }
-                        else -> error("Unsupported URL")
                     }
                 }
             }
         }
-    })
+    )
+
+    // Coroutines will sometimes try to execute a launch in the calling thread, so the normal FakeExecutorService
+    // doesn't work as it relies on the calling code finishing and then the test code being able to call runOne
+    // or runAll, etc.  This overrides the execute method (which is what gets used by coroutine dispatchers) and
+    // executes the Runnable immediately.
+    val ioExecutor: FakeExecutorService = spyk {
+        val runnable = slot<Runnable>()
+        every { execute(capture(runnable)) } answers {
+            runnable.captured.run()
+        }
+    }
+
+    beforeSpec {
+        TaskPools.ioPool = ioExecutor
+    }
+
+    afterSpec {
+        TaskPools.Companion.ioPool = TaskPools.DefaultIoPool
+    }
+
     context("when the client") {
         context("has a valid subscriber") {
             client.addSubscriber("success")
@@ -94,11 +124,13 @@ class WebhookClientTest : ShouldSpec({
                 }
                 should("send the correct data") {
                     requests[0].body.contentType shouldBe ContentType.Application.Json
-                    requests[0].body.shouldBeInstanceOf<TextContent> {
-                        it.text shouldBe jacksonObjectMapper().writeValueAsString(
+                    with(requests[0].body) {
+                        this should beInstanceOf<TextContent>()
+                        this as TextContent
+                        this.text shouldBe jacksonObjectMapper().writeValueAsString(
                             JibriEvent.HealthEvent("test", goodStatus)
                         )
-                        it.text shouldContain """
+                        text shouldContain """
                             "jibriId":"test"
                         """.trimIndent()
                     }
@@ -107,8 +139,10 @@ class WebhookClientTest : ShouldSpec({
                     client.updateStatus(badStatus)
                     should("send another request with the new status") {
                         requests shouldHaveSize 2
-                        requests[1].body.shouldBeInstanceOf<TextContent> {
-                            it.text shouldContain jacksonObjectMapper().writeValueAsString(
+                        with(requests[1].body) {
+                            this should beInstanceOf<TextContent>()
+                            this as TextContent
+                            this.text shouldContain jacksonObjectMapper().writeValueAsString(
                                 JibriEvent.HealthEvent("test", badStatus)
                             )
                         }

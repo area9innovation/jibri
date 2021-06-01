@@ -41,9 +41,8 @@ import org.jitsi.jibri.service.impl.SipGatewayServiceParams
 import org.jitsi.jibri.service.impl.StreamingParams
 import org.jitsi.jibri.sipgateway.SipClientParams
 import org.jitsi.jibri.status.JibriStatusManager
-import org.jitsi.jibri.util.extensions.debug
 import org.jitsi.metaconfig.config
-import java.util.logging.Logger
+import org.jitsi.utils.logging2.createLogger
 import javax.ws.rs.core.Response
 
 // TODO: this needs to include usageTimeout
@@ -68,7 +67,7 @@ class HttpApi(
     private val jibriManager: JibriManager,
     private val jibriStatusManager: JibriStatusManager
 ) {
-    private val logger = Logger.getLogger(this::class.qualifiedName)
+    private val logger = createLogger()
 
     fun Application.apiModule() {
         install(ContentNegotiation) {
@@ -82,9 +81,9 @@ class HttpApi(
                  * [JibriHealth] object
                  */
                 get("health") {
-                    logger.debug("Got health request")
+                    logger.debug { "Got health request" }
                     val health = JibriHealth(jibriStatusManager.overallStatus, jibriManager.currentEnvironmentContext)
-                    logger.debug("Returning health $health")
+                    logger.debug { "Returning health $health" }
                     call.respond(health)
                 }
 
@@ -98,9 +97,10 @@ class HttpApi(
                  * via the HTTP API at this point.
                  */
                 post("startService") {
-                    val startServiceParams = call.receive<StartServiceParams>()
-                    logger.debug("Got a start service request with params $startServiceParams")
                     try {
+                        val startServiceParams = call.receive<StartServiceParams>()
+                        logger.debug { "Got a start service request with params $startServiceParams" }
+
                         handleStartService(startServiceParams)
                         call.respond(HttpStatusCode.OK)
                     } catch (e: JibriBusyException) {
@@ -108,6 +108,7 @@ class HttpApi(
                     } catch (e: IllegalStateException) {
                         call.respond(HttpStatusCode.PreconditionFailed, e.message ?: "")
                     } catch (t: Throwable) {
+                        logger.error("Error starting service $t", t)
                         call.respond(HttpStatusCode.InternalServerError)
                     }
                 }
@@ -116,7 +117,7 @@ class HttpApi(
                  * [stopService] will stop the current service immediately
                  */
                 post("stopService") {
-                    logger.debug("Got stop service request")
+                    logger.debug { "Got stop service request" }
                     jibriManager.stopService()
                     call.respond(HttpStatusCode.OK)
                 }
@@ -167,7 +168,8 @@ class HttpApi(
                     SipGatewayServiceParams(
                         startServiceParams.callParams,
                         startServiceParams.callLoginParams,
-                        sipClientParams)
+                        sipClientParams
+                    )
                 )
             }
         }
