@@ -300,11 +300,11 @@ class CallPage(driver: RemoteWebDriver) : AbstractPageObject(driver) {
                 return sendEndpointMessage(msg, i + 1)
             }
         } else {
-             return false
+            return false
         }
     }
 
-    private class SendEndpointMessageThread(var callPage: CallPage, var msg: String): Thread() {
+    private class SendEndpointMessageThread(var callPage: CallPage, var msg: String) : Thread() {
         public override fun run() {
             callPage.sendEndpointMessage(msg, 0)
         }
@@ -367,5 +367,4 @@ class CallPage(driver: RemoteWebDriver) : AbstractPageObject(driver) {
             }
         }
     }
-
 }

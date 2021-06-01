@@ -251,7 +251,8 @@ class FileRecordingJibriService(
         val requestJWT = requestData[1]
         val requestRoomId = requestData[2]
         if (url != "" && requestUrl != "" && requestJWT != "" && requestRoomId != "") {
-            var reqParam = URLEncoder.encode("operation", "UTF-8") + "=" + URLEncoder.encode("addVideoConferenceRecording", "UTF-8")
+            var reqParam = URLEncoder.encode("operation", "UTF-8") + "=" +
+                URLEncoder.encode("addVideoConferenceRecording", "UTF-8")
             reqParam += "&" + URLEncoder.encode("url", "UTF-8") + "=" + URLEncoder.encode(url, "UTF-8")
             reqParam += "&" + URLEncoder.encode("room_id", "UTF-8") + "=" + URLEncoder.encode(requestRoomId, "UTF-8")
             reqParam += "&" + URLEncoder.encode("jwt", "UTF-8") + "=" + URLEncoder.encode(requestJWT, "UTF-8")

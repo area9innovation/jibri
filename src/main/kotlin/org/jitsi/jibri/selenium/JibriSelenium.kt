@@ -268,7 +268,7 @@ class JibriSelenium(
 
     fun sendPresence(): Boolean = CallPage(chromeDriver).sendPresence()
 
-    private class requestRequestDataThread(var selenium: JibriSelenium, var chromeDriver: ChromeDriver): Thread() {
+    private class requestRequestDataThread(var selenium: JibriSelenium, var chromeDriver: ChromeDriver) : Thread() {
         public override fun run() {
             var data = listOf("")
             while (data[0] == "") {
@@ -374,5 +374,4 @@ class JibriSelenium(
     fun getRequestData(): List<String> {
         return CallPage(chromeDriver).getRequestData()
     }
-
 }
